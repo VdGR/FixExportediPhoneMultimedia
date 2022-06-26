@@ -1,16 +1,46 @@
-from ast import Or
 import os, pathlib 
 from datetime import datetime
-from time import time
 import PIL.Image, PIL.ExifTags
 import filetype, sys
 from PIL import Image
-import cv2,json
+import cv2,json, re
+from pathlib import Path
 
 
 # assign directory
-directory = 'out'
-output_dir = 'test2'
+directory = 'RAW'
+output_dir = 'out'
+
+def check_system():
+    #stackoverflow.com/questions/1854
+    if os.name != 'nt':
+        sys.exit("[!] FEiM stopped!, this program only works in a Windows environment")
+
+def check_existence_dir(dir):
+    if not Path(dir).is_dir():
+        if str(input(f"[!] '{dir}' directory does not exists yet, do you want to create it? (Yes): ") or "Yes") == 'Yes':
+            os.mkdir(dir)
+            print(f"[+] Creating '{dir}' directory")
+        else:
+            sys.exit("[!] FEiM stopped!")
+
+def check_in_dir(dir):
+    print(f"[+] Directory '{dir}' contains {len(os.listdir(dir))}# files")
+    if len(os.listdir(dir)) == 0: 
+        sys.exit(f"[!] Please put some files in your input directory '{dir}'")
+
+def check_out_dir(dir):
+    if len(os.listdir(dir)) != 0:
+        print(f"[+] Directory '{dir}' contains {len(os.listdir(dir))}# files") 
+        if str(input(f"[!] Your input directory '{output_dir}' is not empty (contains {len(os.listdir(dir))}# files) is this a problem? (No): ") or "No") != 'No':
+             sys.exit("[!] FEiM stopped!")
+
+def check_directories():
+    for dir in directory, output_dir:
+        check_existence_dir(dir)
+
+    check_in_dir(directory)
+    check_out_dir(output_dir)
 
 
 def format_datetime(dt):
@@ -67,7 +97,8 @@ def get_new_filename_image(path):
             return f'{output_dir}\{f_dt_DateTimeOrginial}0{extension}'
     return new_name
 
-def rotate_image_PIL(path, orientation):
+def rotate_image_PIL(path):
+    #Not used because quality is too much reduced
     picture = Image.open(path)
     return picture.rotate(90, resample=Image.BICUBIC, expand=True).save(path)
 
@@ -82,7 +113,7 @@ def rotate_image_CV2(path):
     -Pictures taken in landscape mode must be turned 180° degrees (clockwise)
     To know in which mode the pictures were shot I stumbled upon 'ExifImageHeight' 
     which seems to be a good indicator. 
-        For landscape mode, value 3024 was used, and portrait mode values 3088 and 4032
+        For landscape mode, value 3024 was used, and portrait mode uses values 3088 and 4032
 
     """
     Orientation = get_exif_info_image(path)['Orientation']
@@ -97,14 +128,14 @@ def rotate_image_CV2(path):
     }
 
 
-    if Orientation == 1 and pathlib.Path(path).suffix != ".PNG": 
+    if Orientation == 1 and Path(path).suffix != ".PNG": 
         img = cv2.imread(path)
         if ExifImageHeight_mapping[ExifImageHeight] == 'Portrait':
             img_rotated = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             
         elif ExifImageHeight_mapping[ExifImageHeight] == 'Landscape':
             img_rotated = cv2.rotate(img, cv2.ROTATE_180)
-            print(get_exif_info_image(path))
+            #print(get_exif_info_image(path))
 
         else:
             print(ExifImageHeight)
@@ -113,12 +144,22 @@ def rotate_image_CV2(path):
         cv2.imwrite(path, img_rotated)
 
 
-
+def write_erros_to_file(errors):
+    fn = f"{format_datetime(datetime.now())}_errors_FEiM.txt"
+    f = open(fn, "a")
+    f.write(f"relative path, error message\n")
+    for error in errors: 
+        f.write(f"{error[0], error[1]}\n")
+    f.close()
+    return fn
 
 def main():
+    check_system()
+    check_directories()
+    
     renamed = 0
+    errors = []
 
-    print(f"[+] Directory '{directory}' contains {len(os.listdir(directory))}# files")
     for filename in os.listdir(directory):
 
         f = os.path.join(directory, filename)
@@ -131,19 +172,31 @@ def main():
                 rotate_image_CV2(f)
                 os.rename(old_name, new_name)
 
-                print(f"[+] Renaming '{old_name}' to '{new_name}'")
+                if (renamed + 1) % 50 == 0: print(f"[+] Update: Renaming '{old_name}' to '{new_name}' ({renamed+1}th pic)")
                 
                 renamed +=1
+         
             except KeyError:
                 #File doesn't have the DateTimeOriginal key
+                error_m = f"[!] {f} doesn't have the 'DateTimeOriginal' key"
+                print(error_m)
+                errors.append((f,error_m))
                 pass
-                #print(get_exif_info(f))
+                
             except AttributeError:
                 #File doesn't have exif data
-                print(f"{f} has no exif data")
+                error_m = f"[!] {f} has no exif data"
+                print(error_m)
+                errors.append((f,error_m))
                 pass
+            
              
     print(f"[+] {renamed}# photos have been renamed")
+
+    
+    fn = write_erros_to_file(errors)
+    print(f"[+] '{fn}' has been written")
+
 
 if __name__ == "__main__":
     main()
