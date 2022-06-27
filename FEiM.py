@@ -1,15 +1,18 @@
+from msilib.schema import Error
 import os, pathlib 
 from datetime import datetime
+from posixpath import abspath
 import PIL.Image, PIL.ExifTags
 import filetype, sys
 from PIL import Image
 import cv2,json, re
 from pathlib import Path
-
+import exifread
+import subprocess
 
 # assign directory
-directory = 'RAW'
-output_dir = 'out'
+directory = 'iPhone'
+output_dir = 'video'
 
 def check_system():
     #stackoverflow.com/questions/1854
@@ -81,7 +84,24 @@ def get_exif_info_image(path):
         for k, v in img._getexif().items()
         if k in PIL.ExifTags.TAGS
     }
- 
+def get_exif_info_video(path):
+    absolute_path = os.path.join( os.getcwd(), path )
+    process = subprocess.Popen(["exiftool", absolute_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = process.communicate()
+    return out.decode("utf-8").split("\n")
+
+
+def get_exif_creation_date_video(path):
+    EXIFTOOL_DATE_TAG_VIDEOS = "Create Date"
+    EXIF_DATE_FORMAT = "%Y:%m:%d %H:%M:%S"
+    for l in get_exif_info_video(path):
+        if EXIFTOOL_DATE_TAG_VIDEOS in str(l):
+            #you will get 3 dates: Create Date, Track Create Date and Media Create Date, 
+            # but we already return on the first hit
+                datetime_str = str(l.split(" : ")[1].strip())
+                dt = datetime.strptime(datetime_str, EXIF_DATE_FORMAT)
+                return dt 
+
 def get_new_filename_image(path):
     """
     Function needs the path of the image (if not provided it will the stop)
@@ -97,10 +117,12 @@ def get_new_filename_image(path):
             return f'{output_dir}\{f_dt_DateTimeOrginial}0{extension}'
     return new_name
 
+
 def rotate_image_PIL(path):
     #Not used because quality is too much reduced
     picture = Image.open(path)
     return picture.rotate(90, resample=Image.BICUBIC, expand=True).save(path)
+
 
 def rotate_image_CV2(path):
     """
@@ -153,10 +175,8 @@ def write_erros_to_file(errors):
     f.close()
     return fn
 
-def main():
-    check_system()
-    check_directories()
-    
+
+def Fix_Exported_iPhone_Images():
     renamed = 0
     errors = []
 
@@ -198,5 +218,27 @@ def main():
     print(f"[+] '{fn}' has been written")
 
 
+def Fix_Exported_iPhone_Videos():
+    for filename in os.listdir(directory):
+
+        f = os.path.join(directory, filename)
+
+        if filetype.is_video(f):
+            try:
+               creation_date = get_exif_creation_date_video(f)
+               print(creation_date)
+                
+            except Error as e:
+                pass
+
+
+def main():
+    check_system()
+    check_directories()
+    Fix_Exported_iPhone_Images()
+    Fix_Exported_iPhone_Videos()
+
+    
+    
 if __name__ == "__main__":
     main()
